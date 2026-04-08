@@ -14,6 +14,27 @@ from huggingface_hub import snapshot_download
 from hf_downloader import download_model
 import gc 
 from huggingface_hub import login
+# --- 文本预处理导入 (采用你提供的路径) ---
+WETEXT_AVAILABLE = False
+try:
+    # 尝试导入中文正则化器
+    from tn.chinese.normalizer import Normalizer as ZhNormalizer
+    from itn.chinese.inverse_normalizer import InverseNormalizer as ZhInverseNormalizer
+    WETEXT_AVAILABLE = True
+except ImportError:
+    # 如果路径不对，尝试备用路径
+    try:
+        from wetextprocessing.normalizer import Normalizer as ZhNormalizer
+        from wetextprocessing.inverse_normalizer import InverseNormalizer as ZhInverseNormalizer
+        WETEXT_AVAILABLE = True
+    except ImportError:
+        ZhNormalizer = None
+        ZhInverseNormalizer = None
+        print("⚠️ 无法找到 WeTextProcessing 模块，请检查安装。")
+
+# 缓存模型对象，避免重复加载
+wetext_models = {"zh_tn": None, "zh_itn": None, "en_tn": None, "en_itn": None}
+
 
 HF_TOKEN = os.getenv("HF_TOKEN")
 if HF_TOKEN:
@@ -33,6 +54,42 @@ SPEAKERS = [
 LANGUAGES = ["Auto", "Chinese", "English", "Japanese", "Korean", "French", "German", "Spanish", "Portuguese", "Russian"]
 
 # --- 辅助函数 ---
+def process_wetext_logic(text, task_type, lang):
+    if not text or not text.strip():
+        return "请输入文本。"
+    
+    global wetext_models
+    is_zh = "Chinese" in lang
+    is_tn = "Normalizer" in task_type
+    model_key = f"{'zh' if is_zh else 'en'}_{'tn' if is_tn else 'itn'}"
+    
+    try:
+        # 动态初始化
+        if wetext_models[model_key] is None:
+            if is_zh:
+                if is_tn:
+                    # 使用你提供的调用方式
+                    from tn.chinese.normalizer import Normalizer
+                    wetext_models[model_key] = Normalizer()
+                else:
+                    from itn.chinese.inverse_normalizer import InverseNormalizer
+                    wetext_models[model_key] = InverseNormalizer()
+            else:
+                # 英文逻辑 (WeTextProcessing 通常支持 en)
+                from wetextprocessing.normalizer import Normalizer
+                wetext_models[model_key] = Normalizer(lang='en')
+
+        processor = wetext_models[model_key]
+        
+        # 执行转换 (WeTextProcessing 的统一方法是 .normalize)
+        if is_tn:
+            return processor.normalize(text)
+        else:
+            # ITN 有些版本也叫 normalize，有些叫 inverse_normalize
+            return processor.normalize(text) if hasattr(processor, 'normalize') else processor.inverse_normalize(text)
+            
+    except Exception as e:
+        return f"处理出错，请检查模块路径是否匹配。\n错误信息: {str(e)}"
 
 def get_model_path(model_type: str, model_size: str) -> str:
     """根据类型和大小获取模型路径。"""
@@ -442,6 +499,7 @@ def build_ui():
                 )
 
             # --- Tab 4: 关于 ---
+            # --- Tab 4: 关于 ---
             with gr.Tab("关于项目"):
                 gr.Markdown("""
                 # Qwen3-TTS 
@@ -449,6 +507,19 @@ def build_ui():
                 - **声音设计 (Voice Design)**：通过自然语言描述创建自定义声音。
                 - **声音克隆 (Voice Clone)**：仅需一段参考音频即可克隆任何声音。
                 - **标准 TTS (CustomVoice)**：使用预设的说话人角色，支持可选的风格指令。
+
+                ### 预设说话人说明 (Preset Speakers)
+                | 说话人 | 声音描述 | 母语/擅长语言 |
+                | :--- | :--- | :--- |
+                | **Vivian** | 音色明亮，带有一点个性的年轻女声。 | 中文 |
+                | **Serena** | 温暖、柔和的年轻女声。 | 中文 |
+                | **Uncle_Fu** | 嗓音醇厚、富有阅历的成熟男声。 | 中文 |
+                | **Dylan** | 音色清爽自然、富有朝气的北京年轻男声。 | 中文 (北京话) |
+                | **Eric** | 活泼明快、略带磁性沙哑感的成都男声。 | 中文 (四川话) |
+                | **Ryan** | 充满动力、节奏感强的动感男声。 | 英语 |
+                | **Aiden** | 阳光健康、中音清晰的美国男声。 | 英语 |
+                | **Ono_Anna** | 俏皮可爱、音色轻盈灵动的日本女声。 | 日语 |
+                | **Sohee** | 温暖柔美、情感丰富的韩国女声。 | 韩语 |
 
                 基于阿里巴巴 Qwen 团队的 [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) 项目构建。
                 """)
@@ -472,6 +543,47 @@ def build_ui():
                   <li>集成字幕生成功能（SRT、逐词对齐、短视频格式）。</li>
                 </ul>
                 """)
+            # --- Tab 4: 文本预处理 ---
+            with gr.Tab("文本预处理 (WeTextProcessing)"):
+                gr.Markdown("""
+                ### 🛠️ WeTextProcessing 工具箱
+                在进行语音合成前，可以使用此工具对文本进行**归一化 (TN)** 或 **逆向归一化 (ITN)** 处理。
+                - **TN (Normalizer):** 将符号/数字转为文字 (例如: `100%` -> `百分之百`)。
+                - **ITN (Inverse):** 将文字转为符号/数字 (例如: `二零二四年` -> `2024年`)。
+                """)
+                with gr.Row():
+                    with gr.Column():
+                        wetext_input = gr.Textbox(label="原始文本", lines=10, placeholder="在此输入需要转换的文本...")
+                        with gr.Row():
+                            wetext_task = gr.Radio(
+                                ["Normalizer (TN)", "Inverse Normalizer (ITN)"], 
+                                label="任务类型", 
+                                value="Normalizer (TN)"
+                            )
+                            wetext_lang = gr.Radio(
+                                ["Chinese (zh)", "English (en)"], 
+                                label="语言", 
+                                value="Chinese (zh)"
+                            )
+                        wetext_convert_btn = gr.Button("执行转换", variant="primary")
+                    
+                    with gr.Column():
+                        wetext_output = gr.Textbox(label="转换结果", lines=10, interactive=False, show_copy_button=True)
+                        wetext_use_btn = gr.Button("复制到 TTS 输入框 (仅限语音设计 Tab)")
+
+                # 绑定事件
+                wetext_convert_btn.click(
+                    process_wetext_logic,
+                    inputs=[wetext_input, wetext_task, wetext_lang],
+                    outputs=wetext_output
+                )
+                
+                # 联动功能：自动把处理好的结果填到第一个 Tab 里
+                wetext_use_btn.click(
+                    fn=lambda x: x,
+                    inputs=[wetext_output],
+                    outputs=[design_text]
+                )
 
     return demo
 
