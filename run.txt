@@ -1,0 +1,10 @@
+@echo off
+cd /d <full_path>\Qwen3-TTS-Colab
+
+REM Activate virtual environment
+call myenv\Scripts\activate
+
+REM Run the app
+python app.py
+
+pause
