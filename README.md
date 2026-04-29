@@ -1,5 +1,6 @@
 # 🎙️ Qwen3-TTS WebUI (Colab Edition)
 
+
 一款基于阿里巴巴 **Qwen3-TTS-12Hz** 模型开发的非官方全能型语音合成界面。本项目针对 Google Colab 进行了深度优化，支持长文本合成、自动克隆及多种格式字幕生成。
 
 ---
@@ -9,7 +10,7 @@
 点击下方按钮在 Google Colab 中直接运行，无需本地配置：
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/10KBH_YE7gCDjng6QWu9YVCshyjP5q82M?usp=sharing)
-
+[![YouTube](https://img.shields.io/badge/YouTube-FM19.2-red)](https://www.youtube.com/@fm19.2?sub_confirmation=1)
 ---
 
 ### 🌟 项目亮点 / Key Features
